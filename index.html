@@ -24,6 +24,8 @@ body.viewonly .dock{display:none!important}
 body.viewonly .seat{pointer-events:none}
 body.viewonly .alert button{display:none}
 body.viewonly .tabs button[data-tab=set]{display:none}
+.adminonly{display:none}body.isadmin .tabs button.adminonly{display:block}
+.lg{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0 14px}.lg th,.lg td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:right;white-space:nowrap}.lg th:first-child,.lg td:first-child{text-align:left}.lg th{color:var(--muted);font-weight:600}.lgw{overflow-x:auto}
 body.viewonly #tab-board button,body.viewonly #tab-cast button,body.viewonly .zone .zb,body.viewonly .sheet button.p,body.viewonly .sheet button.d{display:none}
 body.viewonly .dup{pointer-events:none}
 body.viewonly main{padding-bottom:20px}
@@ -162,7 +164,7 @@ body.syncwait main{opacity:.35;pointer-events:none}
 </head>
 <body>
 <header>
-  <h1>付け回し <span id="syncbadge" class="muted" style="font-size:11px">接続中…</span> <span id="rolebadge" class="role op" onclick="toggleRole()">操作用</span></h1>
+  <h1>付け回し <span id="syncbadge" class="muted" style="font-size:11px">接続中…</span> <span id="rolebadge" class="role op" onclick="toggleRole()">操作用</span> <span id="whoami" class="muted" style="font-size:11px"></span></h1>
   <div class="tally" id="tally"></div>
 </header>
 <div class="tabs">
@@ -170,6 +172,7 @@ body.syncwait main{opacity:.35;pointer-events:none}
   <button data-tab="board">付け回し</button>
   <button data-tab="cast">キャスト</button>
   <button data-tab="set">設定</button>
+  <button data-tab="log" class="adminonly">集計</button>
 </div>
 <main>
   <section id="tab-map">
@@ -181,6 +184,7 @@ body.syncwait main{opacity:.35;pointer-events:none}
   </section>
   <section id="tab-board" style="display:none"></section>
   <section id="tab-cast" style="display:none"></section>
+  <section id="tab-log" style="display:none"></section>
   <section id="tab-set" style="display:none">
     <div class="card">
       <div class="nm" style="font-weight:700;margin-bottom:6px">設定値</div>
@@ -284,7 +288,7 @@ function fresh(){ return { settings:{set:60,ext:60,half:30,soon:15,turn:20,left:
 function load(){ S=fresh(); try{ const j=localStorage.getItem(KEY); if(j){ const parsed=JSON.parse(j); const f=fresh(); S={...f,...parsed, settings:{...f.settings,...(parsed.settings||{})}, casts:parsed.casts||f.casts, tables:parsed.tables||{}, history:parsed.history||[]};
     const ids=new Set(FLOORS.flatMap(fl=>fl.seats.map(x=>x.id))); for(const k of Object.keys(S.tables)){ if(!ids.has(k)) delete S.tables[k]; }
     Object.values(S.tables).forEach(t=>{ t.slots=t.slots||[]; t.linked=(t.linked||[]).filter(id=>ids.has(id)); t.slots.forEach(x=>{ if(x.want&&!x.since) x.since=t.start; }); }); } }catch(e){ S=fresh(); } }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} if(typeof syncPush==='function') syncPush(); }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} if(typeof audOnSave==='function') audOnSave(); if(typeof syncPush==='function') syncPush(); }
 const now=()=>Date.now(), mins=ms=>Math.floor(ms/60000);
 const seatById=id=>{ for(const f of FLOORS){ const s=f.seats.find(x=>x.id===id); if(s) return {...s,floor:f}; } return null; };
 const castById=id=>S.casts.find(c=>c.id===id);
@@ -599,9 +603,9 @@ let leaveArm=null;
 function confirmLeave(sid){ if(leaveArm===sid){ leaveArm=null; return true; } leaveArm=sid; const b=document.querySelector('.sheet .b.d'); if(b) b.textContent='もう一度押して退店を確定'; return false; }
 function closeSheet(){ leaveArm=null; preCast=null; document.getElementById('sheet').classList.remove('on'); document.getElementById('sbg').classList.remove('on'); }
 function toggleRole(){ if(ROLE==='op'){ setRole('view'); } else { const pin=document.getElementById('pinbox'); openPin(); } }
-function openPin(){ const el=document.getElementById('sheet'); el.innerHTML=`<h3>操作用に切り替え</h3><div class="sub">付け回し・キャッシャー用のPINを入力</div><input id="pin" type="password" inputmode="numeric" style="width:100%" placeholder="PIN"><div class="row"><button class="b" onclick="closeSheet()">やめる</button><button class="b p" onclick="pinGo()">切り替え</button></div>`; el.classList.add('on'); document.getElementById('sbg').classList.add('on'); }
+function openPin(){ const el=document.getElementById('sheet'); el.innerHTML=`<h3>操作用に切り替え</h3><div class="sub">自分のPINを入力</div><input id="pin" type="password" inputmode="numeric" style="width:100%" placeholder="PIN"><div class="row"><button class="b" onclick="closeSheet()">やめる</button><button class="b p" onclick="pinGo()">切り替え</button></div>`; el.classList.add('on'); document.getElementById('sbg').classList.add('on'); }
 async function pinGo(){ const el=document.getElementById('pin'); const ok=await tryOp(el.value); if(ok){ closeSheet(); setRole('op'); badge('同期中 ✓'); syncPush(); } else { el.value=''; el.placeholder='PINが違います'; } }
-function switchTab(t){ tab=t; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t)); ['map','cast','board','set'].forEach(x=>document.getElementById('tab-'+x).style.display=(x===t)?'block':'none'); render(); }
+function switchTab(t){ tab=t; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t)); ['map','cast','board','set','log'].forEach(x=>document.getElementById('tab-'+x).style.display=(x===t)?'block':'none'); render(); if(t==='log') renderLog(); }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 
 /* ========= デモ・リセット ========= */
@@ -620,7 +624,8 @@ function resetAll(){ if(ROLE==='view') return; if(!window.confirm('今日の卓�
 
 /* ========= Supabase 接続 ========= */
 const SUPA_URL='https://dsipkrmsipqumybqeqzy.supabase.co', SUPA_KEY='sb_publishable_4sEpsZjwbETuUILcNntU7A_uRmiXjrZ';
-const OP_EMAIL='op@tsukemawashi.invalid', VIEW_EMAIL='view@tsukemawashi.invalid';
+const staffEmail=n=>'s'+n+'@tsukemawashi.invalid'; const MAX_STAFF=5;
+let ME=null, STAFF={}, LOGIN_NO=null;
 let SB=null;
 function sbErr(e){ const c=String((e&&e.code)||''); if(c==='42501'||c==='PGRST301'||/row-level security|permission/i.test((e&&e.message)||'')) return {code:'invalid_argument',message:e.message}; return {code:'unavailable',message:(e&&e.message)||'network'}; }
 function makeDb(sb){ const cache={}, lis={}, filt={};
@@ -642,21 +647,82 @@ function makeDb(sb){ const cache={}, lis={}, filt={};
       onSnapshot:(next)=>{ if(cut!=null) filt[col]=cut; const f=()=>{ if(!cache[col]) return; const docs=[...cache[col].keys()].sort().map(id=>snapDoc(col,id)); next({docs,size:docs.length,empty:!docs.length,metadata:{fromCache:false,hasPendingWrites:false}}); }; (lis[col]=lis[col]||[]).push(f); if(cache[col]&&cut==null) setTimeout(f,0); else { cache[col]=null; ensure(col); } return ()=>{ lis[col]=lis[col].filter(x=>x!==f); }; } });
   return {doc,collection}; }
 function loginUI(msg){ return new Promise(res=>{ let el=document.getElementById('login'); if(!el){ el=document.createElement('div'); el.id='login'; el.style.cssText='position:fixed;inset:0;z-index:999;background:#0b0d12;display:flex;align-items:center;justify-content:center;padding:20px'; document.body.appendChild(el); }
-  el.innerHTML=`<div style="width:100%;max-width:340px"><h3 style="margin:0 0 4px">付け回しボード</h3><div class="muted" style="margin-bottom:14px">PINを入力してください</div>
-    <div class="row" style="margin-bottom:10px"><button class="b p" id="lg-op" style="flex:1">操作用</button><button class="b" id="lg-view" style="flex:1">閲覧用</button></div>
+  el.innerHTML=`<div style="width:100%;max-width:340px"><h3 style="margin:0 0 4px">付け回しボード</h3><div class="muted" style="margin-bottom:14px">自分の担当番号を選んで、自分のPINを入力してください</div>
+    <div class="row" style="margin-bottom:10px;gap:6px">${[1,2,3,4,5].map(n=>`<button class="b" data-no="${n}" style="flex:1;padding:12px 0;font-size:16px">${n}</button>`).join('')}</div>
     <input id="lg-pin" type="password" inputmode="numeric" autocomplete="off" style="width:100%" placeholder="PIN">
     <div id="lg-msg" class="muted" style="color:#ff6b6b;min-height:18px;margin:6px 0">${msg||''}</div>
     <button class="b p" id="lg-go" style="width:100%">入る</button></div>`;
-  let who='op'; const bo=el.querySelector('#lg-op'), bv=el.querySelector('#lg-view'); const pickWho=w=>{ who=w; bo.className='b'+(w==='op'?' p':''); bv.className='b'+(w==='view'?' p':''); };
-  bo.onclick=()=>pickWho('op'); bv.onclick=()=>pickWho('view');
-  const go=async()=>{ const pin=el.querySelector('#lg-pin').value; if(!pin) return; el.querySelector('#lg-go').disabled=true; const {data,error}=await SB.auth.signInWithPassword({email:who==='op'?OP_EMAIL:VIEW_EMAIL,password:pin}); el.querySelector('#lg-go').disabled=false;
-    if(error||!data.session){ el.querySelector('#lg-pin').value=''; el.querySelector('#lg-msg').textContent=/Invalid login/i.test((error&&error.message)||'')?'PINが違います':'入れませんでした（電波を確認）'; return; } el.remove(); res(data.session); };
+  let who=null; const bs=[...el.querySelectorAll('button[data-no]')]; bs.forEach(b=>b.onclick=()=>{ who=Number(b.dataset.no); bs.forEach(x=>x.className='b'+(x===b?' p':'')); el.querySelector('#lg-pin').focus(); });
+  const go=async()=>{ const pin=el.querySelector('#lg-pin').value; const m=el.querySelector('#lg-msg'); if(!who){ m.textContent='担当番号を選んでください'; return; } if(!pin) return; el.querySelector('#lg-go').disabled=true; const {data,error}=await SB.auth.signInWithPassword({email:staffEmail(who),password:pin}); el.querySelector('#lg-go').disabled=false;
+    if(error||!data.session){ el.querySelector('#lg-pin').value=''; m.textContent=/Invalid login/i.test((error&&error.message)||'')?'番号かPINが違います':'入れませんでした（電波を確認）'; return; } el.remove(); res(data.session); };
   el.querySelector('#lg-go').onclick=go; el.querySelector('#lg-pin').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); }); }); }
-async function tryOp(pin){ const {data,error}=await SB.auth.signInWithPassword({email:OP_EMAIL,password:pin}); if(error||!data.session) return false; SY.ro=false; return true; }
+async function tryOp(pin){ if(!LOGIN_NO||!ME) return false; const {data,error}=await SB.auth.signInWithPassword({email:staffEmail(LOGIN_NO),password:pin}); if(error||!data.session) return false; SY.ro=false; return true; }
 async function logoutDevice(){ if(!SB) return; await SB.auth.signOut(); location.reload(); }
 async function getDb(){ if(!window.supabase||SUPA_URL.startsWith('__')) return null; SB=window.supabase.createClient(SUPA_URL,SUPA_KEY);
   let {data}=await SB.auth.getSession(); let ses=data.session; if(!ses) ses=await loginUI();
-  SY.ro = (ses.user.email||'').toLowerCase()!==OP_EMAIL.toLowerCase(); if(SY.ro) setRole('view'); return makeDb(SB); }
+  const mm=/^s(\d)@/.exec(ses.user.email||''); LOGIN_NO=mm?Number(mm[1]):null;
+  try{ const {data:st}=await SB.from('tm_staff').select('uid,no,name,admin'); (st||[]).forEach(r=>{ STAFF[r.uid]=r; }); }catch(e){}
+  ME=STAFF[ses.user.id]||null; SY.ro=!ME; if(SY.ro) setRole('view');
+  if(ME){ const rb=document.getElementById('rolebadge'); rb.title='担当'+ME.no; document.getElementById('whoami').textContent='担当'+ME.no+(ME.name?' '+ME.name:''); if(ME.admin) document.body.classList.add('isadmin'); }
+  return makeDb(SB); }
+
+/* ========= 操作記録（誰が・いつ・何をしたか） =========
+   save() のたびに直前の状態との差分を取り、自分の操作として tm_log に追記する。
+   他の端末から届いた変更は applyRender で基準を更新するので、自分の操作には数えない。 */
+const AUD={prev:null,q:[],busy:false}; const AUDK='tm-logq-v1';
+try{ AUD.q=JSON.parse(localStorage.getItem(AUDK)||'[]'); }catch(e){ AUD.q=[]; }
+function audSnap(){ return JSON.parse(JSON.stringify({tables:S.tables,on:Object.fromEntries(S.casts.map(c=>[c.id,!!c.on])),names:Object.fromEntries(S.casts.map(c=>[c.id,c.name])),settings:S.settings})); }
+function audDiff(b,a){ const ev=[]; const nm=id=>a.names[id]||b.names[id]||'?'; const ks=new Set([...Object.keys(b.tables),...Object.keys(a.tables)]);
+  const seated=t=>{ const m={}; (t.slots||[]).forEach(x=>{ if(x.castId) m[x.castId]=occKind(x); }); return m; };
+  const gone=[...ks].filter(k=>b.tables[k]&&!a.tables[k]), born=[...ks].filter(k=>!b.tables[k]&&a.tables[k]); const moved={};
+  gone.forEach(g=>{ const t=born.find(n=>a.tables[n].start===b.tables[g].start&&!moved[n]); if(t){ moved[t]=g; ev.push({act:'卓移動',sid:t,detail:{from:g,to:t}}); } });
+  const off={}, onn={};
+  for(const k of ks){ const tb=b.tables[k], ta=a.tables[k]; const src=moved[k]; const base=src?b.tables[src]:tb;
+    if(!base&&ta){ ev.push({act:'入店',sid:k,detail:{guests:ta.slots.length,kinds:ta.slots.map(x=>x.kind).join(',')}}); }
+    if(tb&&!ta&&!Object.values(moved).includes(k)){ ev.push({act:'退店',sid:k,detail:{min:Math.round((Date.now()-tb.start)/60000),ext:tb.ext||0,guests:(tb.slots||[]).length}}); }
+    if(base&&ta){ if(ta.end!==base.end){ const m=Math.round((ta.end-base.end)/60000); if(isFinite(m)&&m!==0) ev.push({act:m>0&&m<=(S.settings.half||30)?'ハーフ延長':(m>0?'延長':'時間変更'),sid:k,detail:{min:m}}); }
+      const d=ta.slots.length-base.slots.length; if(d>0) ev.push({act:'枠追加',sid:k,detail:{n:d,guests:ta.slots.length}}); if(d<0) ev.push({act:'枠削除',sid:k,detail:{n:-d,guests:ta.slots.length}});
+      if(stab((ta.linked||[]).slice().sort())!==stab((base.linked||[]).slice().sort())) ev.push({act:'席の連結変更',sid:k,detail:{linked:(ta.linked||[]).join(',')}}); }
+    const sb=base?seated(base):{}, sa=ta?seated(ta):{};
+    for(const c of Object.keys(sa)){ if(!(c in sb)) onn[c]={sid:k,kind:sa[c]}; else if(sa[c]!==sb[c]) ev.push({act:'種別変更',sid:k,detail:{cast:nm(c),from:KINDS[sb[c]]||sb[c],to:KINDS[sa[c]]||sa[c]}}); }
+    for(const c of Object.keys(sb)){ if(!(c in sa)) off[c]={sid:src||k}; } }
+  for(const c of Object.keys(onn)){ const o=off[c]; const from=o&&moved[onn[c].sid]!==o.sid?o.sid:null; if(o&&!from){ delete off[c]; continue; }
+    ev.push({act:from?'移動':'着席',sid:onn[c].sid,detail:Object.assign({cast:nm(c),kind:KINDS[onn[c].kind]||onn[c].kind},from?{from}:{})}); delete off[c]; }
+  for(const c of Object.keys(off)){ if(a.tables[off[c].sid]||!gone.includes(off[c].sid)) ev.push({act:'離席',sid:off[c].sid,detail:{cast:nm(c)}}); }
+  for(const c of Object.keys(a.on)){ if(!(c in b.on)) ev.push({act:'キャスト追加',sid:null,detail:{cast:nm(c)}}); else if(a.on[c]!==b.on[c]) ev.push({act:a.on[c]?'出勤':'退勤',sid:null,detail:{cast:nm(c)}}); }
+  if(stab(a.settings)!==stab(b.settings)) ev.push({act:'設定変更',sid:null,detail:{settings:a.settings}});
+  return ev; }
+function audOnSave(){ const cur=audSnap(); const prev=AUD.prev; AUD.prev=cur; if(!prev||!SB||!ME||ROLE!=='op') return; let ev=[]; try{ ev=audDiff(prev,cur); }catch(e){ console.error(e); return; }
+  if(!ev.length) return; const ct=Date.now(); ev.slice(0,80).forEach(e=>{ e.detail=Object.assign({ct},e.detail); AUD.q.push(e); }); try{ localStorage.setItem(AUDK,JSON.stringify(AUD.q.slice(-500))); }catch(e){} audFlush(); }
+async function audFlush(){ if(AUD.busy||!AUD.q.length||!SB||!ME) return; AUD.busy=true; const batch=AUD.q.slice(0,100);
+  try{ const {error}=await SB.from('tm_log').insert(batch.map(e=>({act:e.act,sid:e.sid,detail:e.detail}))); if(!error||String(error.code)==='42501'){ AUD.q=AUD.q.slice(batch.length); try{ localStorage.setItem(AUDK,JSON.stringify(AUD.q)); }catch(e){} } }catch(e){} finally{ AUD.busy=false; } if(AUD.q.length) setTimeout(audFlush,4000); }
+setInterval(audFlush,8000);
+
+/* ========= 集計タブ（管理者だけ） ========= */
+let LOGDAY=0, LOGROWS=[];
+const esc=x=>String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function logCut(){ return bizCut()+LOGDAY*86400000; }
+function staffLabel(uid){ const r=STAFF[uid]; return r?('担当'+r.no+(r.name?' '+r.name:'')):'不明'; }
+async function renderLog(){ const el=document.getElementById('tab-log'); if(!ME||!ME.admin||!SB){ el.innerHTML=''; return; }
+  const cut=logCut(); const d=new Date(cut); const dl=`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}（朝6時〜翌6時）`;
+  el.innerHTML=`<div class="card"><div class="row" style="align-items:center"><button class="b s" onclick="LOGDAY--;renderLog()">◀ 前日</button><div class="nm" style="flex:1;text-align:center;font-weight:700">${dl}</div><button class="b s" onclick="if(LOGDAY<0){LOGDAY++;renderLog()}">翌日 ▶</button></div><div class="muted" id="lg-state">読み込み中…</div></div><div id="lg-body"></div>`;
+  let rows=[]; try{ const {data,error}=await SB.from('tm_log').select('id,at,uid,act,sid,detail').gte('at',new Date(cut).toISOString()).lt('at',new Date(cut+86400000).toISOString()).order('at',{ascending:true}).limit(5000); if(error) throw error; rows=data||[]; }catch(e){ document.getElementById('lg-state').textContent='読み込めませんでした（電波を確認）'; return; }
+  try{ const {data:st}=await SB.from('tm_staff').select('uid,no,name,admin'); STAFF={}; (st||[]).forEach(r=>{ STAFF[r.uid]=r; }); }catch(e){}
+  LOGROWS=rows; const st=document.getElementById('lg-state'); if(st) st.textContent=`操作 ${rows.length} 件`;
+  const ACTS=['入店','延長','ハーフ延長','退店','着席','移動','離席','枠追加','枠削除','卓移動','出勤','退勤']; const by={};
+  rows.forEach(r=>{ const u=by[r.uid]=by[r.uid]||{n:0,acts:{},kinds:{}}; u.n++; u.acts[r.act]=(u.acts[r.act]||0)+1; if(r.act==='着席'||r.act==='移動'){ const k=(r.detail&&r.detail.kind)||'?'; u.kinds[k]=(u.kinds[k]||0)+1; } });
+  const uids=Object.keys(by).sort((x,y)=>((STAFF[x]||{}).no||9)-((STAFF[y]||{}).no||9));
+  const t1=`<table class="lg"><tr><th>担当</th>${ACTS.map(a=>`<th>${a}</th>`).join('')}<th>その他</th><th>合計</th></tr>${uids.map(u=>{ const x=by[u]; const known=ACTS.reduce((s,a)=>s+(x.acts[a]||0),0); return `<tr><td>${esc(staffLabel(u))}</td>${ACTS.map(a=>`<td>${x.acts[a]||''}</td>`).join('')}<td>${x.n-known||''}</td><td><b>${x.n}</b></td></tr>`; }).join('')||`<tr><td colspan="${ACTS.length+3}" style="text-align:center" class="muted">この日の記録はありません</td></tr>`}</table>`;
+  const KS=['本指名','場内','フリー','ヘルプ'];
+  const t2=`<table class="lg"><tr><th>担当</th>${KS.map(k=>`<th>${k}</th>`).join('')}<th>着けた合計</th></tr>${uids.map(u=>{ const x=by[u]; const tot=Object.values(x.kinds).reduce((s,v)=>s+v,0); return `<tr><td>${esc(staffLabel(u))}</td>${KS.map(k=>`<td>${x.kinds[k]||''}</td>`).join('')}<td><b>${tot||''}</b></td></tr>`; }).join('')}</table>`;
+  const tm=t=>{ const x=new Date(t); return String(x.getHours()).padStart(2,'0')+':'+String(x.getMinutes()).padStart(2,'0')+':'+String(x.getSeconds()).padStart(2,'0'); };
+  const desc=r=>{ const d=r.detail||{}; const p=[]; if(d.cast) p.push(d.cast); if(d.kind) p.push(d.kind); if(d.from&&d.to&&r.act==='卓移動') p.push(d.from+'→'+d.to); else if(d.from) p.push(d.from+'から'); if(d.to&&r.act==='種別変更') p.push('→'+d.to); if(d.min!=null) p.push(d.min+'分'); if(d.guests!=null) p.push('客'+d.guests+'名'); if(d.n!=null) p.push(d.n+'枠'); return p.join(' '); };
+  const t3=`<table class="lg"><tr><th>時刻</th><th style="text-align:left">担当</th><th style="text-align:left">操作</th><th style="text-align:left">卓</th><th style="text-align:left">内容</th></tr>${rows.slice().reverse().slice(0,400).map(r=>`<tr><td>${tm((r.detail&&r.detail.ct)||r.at)}</td><td style="text-align:left">${esc(staffLabel(r.uid))}</td><td style="text-align:left">${esc(r.act)}</td><td style="text-align:left">${esc(r.sid||'')}</td><td style="text-align:left">${esc(desc(r))}</td></tr>`).join('')}</table>`;
+  const names=`<div class="card"><div class="nm" style="font-weight:700;margin-bottom:6px">担当者の名前</div><div class="muted">番号ごとに表示名を付けられます（集計にだけ出ます）</div>${[1,2,3,4,5].map(n=>{ const r=Object.values(STAFF).find(x=>x.no===n); return `<div class="row" style="align-items:center"><span style="width:52px">担当${n}</span>${r?`<input id="sn${n}" value="${esc(r.name||'')}" style="flex:1" placeholder="名前"><button class="b s" onclick="saveStaffName(${n})">保存</button>${r.admin?'<span class="tag">管理者</span>':''}`:'<span class="muted">未登録</span>'}</div>`; }).join('')}</div>`;
+  document.getElementById('lg-body').innerHTML=`<div class="card"><div class="nm" style="font-weight:700">担当別：操作の回数</div><div class="lgw">${t1}</div><div class="nm" style="font-weight:700">担当別：着けた内訳（着席＋移動）</div><div class="lgw">${t2}</div><div class="row"><button class="b s" onclick="renderLog()">更新</button><button class="b s" onclick="logCsv()">CSVで保存</button></div></div><div class="card"><div class="nm" style="font-weight:700">操作の一覧（新しい順・最大400件）</div><div class="lgw">${t3}</div></div>${names}`; }
+async function saveStaffName(n){ const v=document.getElementById('sn'+n).value.trim(); const {error}=await SB.from('tm_staff').update({name:v}).eq('no',n); if(error) window.alert('保存できませんでした'); else renderLog(); }
+function logCsv(){ const q=x=>'"'+String(x==null?'':x).replace(/"/g,'""')+'"'; const lines=[['日時','担当番号','担当名','操作','卓','キャスト','種別','分','客数','その他'].join(',')].concat(LOGROWS.map(r=>{ const d=r.detail||{}; const s=STAFF[r.uid]||{}; const rest=Object.assign({},d); ['ct','cast','kind','min','guests'].forEach(k=>delete rest[k]); return [new Date(d.ct||r.at).toLocaleString('ja-JP'),s.no||'',s.name||'',r.act,r.sid||'',d.cast||'',d.kind||'',d.min==null?'':d.min,d.guests==null?'':d.guests,Object.keys(rest).length?JSON.stringify(rest):''].map(q).join(','); }));
+  const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); const d=new Date(logCut()); a.download=`tsukemawashi_log_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}.csv`; document.body.appendChild(a); a.click(); a.remove(); }
 
 /* ========= 同期（全端末で同じ状態を共有） =========
    casts/<id>・tables/<席id>・meta/settings・hist/<席id>_<卓開始時刻> に分けて保存。
@@ -686,7 +752,7 @@ async function pump(path){ if(SY.busy[path]) return; SY.busy[path]=true;
     if(!Object.keys(SY.pend).length && !SY.ro) badge('同期中 ✓'); }
   finally{ SY.busy[path]=false; } }
 function markGot(k){ SY.got[k]=true; if(!SY.ready && SY.got.casts&&SY.got.tables&&SY.got.hist&&SY.got.settings){ SY.ready=true; clearTimeout(SY.timer); document.body.classList.remove('syncwait'); badge(SY.ro?'閲覧のみ':'同期中 ✓'); } }
-function applyRender(){ if(document.getElementById('tab-set').style.display==='none') fillSettingsInputs(); render(); }
+function applyRender(){ if(typeof audSnap==='function') AUD.prev=audSnap(); if(document.getElementById('tab-set').style.display==='none') fillSettingsInputs(); render(); }
 function subHist(){ SY.histCut=bizCut(); for(const k of Object.keys(SY.synced)) if(k.startsWith('hist/')) delete SY.synced[k];
   S.history=S.history.filter(h=>h.tkey>=SY.histCut);
   return SY.db.collection('hist').where('t','>=',SY.histCut).onSnapshot(snap=>{ if(snap.metadata.fromCache&&!SY.ready) return;
@@ -718,7 +784,7 @@ async function syncStart(){ document.body.classList.add('syncwait');
   setInterval(()=>{ if(SY.db&&bizCut()!==SY.histCut){ location.reload(); } },60000);
 }
 
-load();
+load(); AUD.prev=audSnap();
 function fillSettingsInputs(){ const st=S.settings; ['set','ext','half','soon','turn','left','left2','noone'].forEach(k=>{ const e=document.getElementById('s-'+k); if(e) e.value=st[k]; }); }
 fillSettingsInputs();
 window.addEventListener('resize',()=>render());
