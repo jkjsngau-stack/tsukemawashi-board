@@ -545,7 +545,8 @@ function dropSlot(sid,i){ if(ROLE==='view') return; const t=S.tables[sid]; if(t.
 function changeKind(sid,i,k){ if(ROLE==='view') return; const s=S.tables[sid].slots[i]; s.kind=k; if(isRot(k)) s.want=null; save(); openSeat(sid); render(); }
 function linkSeats(sid){ if(ROLE==='view') return; const t=S.tables[sid]; t.linked=[...(t.linked||[]),...linkSel.filter(id=>!(t.linked||[]).includes(id)&&seatFree(id))]; linkSel=[]; save(); openSeat(sid); render(); }
 function unlinkSeat(sid,id){ if(ROLE==='view') return; const t=S.tables[sid]; t.linked=(t.linked||[]).filter(x=>x!==id); save(); openSeat(sid); render(); }
-function setStart(sid){ if(ROLE==='view') return; const t=S.tables[sid]; const el=document.getElementById('st-time'); const v=el?el.value:''; if(!t||!/^\d\d:\d\d/.test(v)) return; const d=new Date(); d.setHours(Number(v.slice(0,2)),Number(v.slice(3,5)),0,0); let ts=d.getTime(); if(ts>now()+5*60000) ts-=86400000; const cur=t.startAt||t.start; const delta=ts-cur; if(!delta) return; t.startAt=ts; t.end+=delta; save(); openSeat(sid); render(); }
+let stMsg='';
+function setStart(sid){ if(ROLE==='view') return; const t=S.tables[sid]; const el=document.getElementById('st-time'); const v=el?el.value:''; if(!t||!/^\d\d:\d\d/.test(v)){ stMsg='時刻を入れてください'; openSeat(sid); return; } const cur=t.startAt||t.start; const hm=v.slice(0,5); if(hm===hhmm(cur)){ stMsg='時刻が同じです（変更なし）'; openSeat(sid); return; } const d=new Date(); d.setHours(Number(hm.slice(0,2)),Number(hm.slice(3,5)),0,0); let ts=d.getTime(); if(ts>now()+5*60000) ts-=86400000; const delta=ts-cur; const near=x=>x&&Math.abs(x-cur)<3000; if(near(t.lastEmpty)) t.lastEmpty=ts; if(near(t.notFullSince)) t.notFullSince=ts; t.slots.forEach(x=>{ if(!x.castId&&near(x.since)) x.since=ts; }); t.startAt=ts; t.end+=delta; stMsg='入店時刻を '+hhmm(cur)+' → '+hm+' に変更しました（終了予定 '+hhmm(t.end)+'）'; save(); openSeat(sid); render(); }
 function extend(sid,m){ if(ROLE==='view') return; const t=S.tables[sid]; t.end+=m*60000; t.ext++; save(); openSeat(sid); render(); }
 function leaveTable(sid){ if(ROLE==='view') return; const t=S.tables[sid]; t.slots.forEach(s=>{ if(s.castId){ S.history.push({sid,tkey:t.start,castId:s.castId,start:s.start,end:now(),kind:occKind(s),reason:'close'}); const c=castById(s.castId); if(c) c.status='wait'; } }); delete S.tables[sid]; save(); closeSheet(); render(); }
 function moveTable(sid){ if(ROLE==='view') return; const to=document.getElementById('m-to').value; const td=seatById(to); if(!to||!td||S.tables[to]) return; if(td.hidden){ if(td.parts.some(id=>S.tables[id]||linkedTo(id))) return; } else if(!seatFree(to)) return; S.tables[to]=S.tables[sid]; S.tables[to].linked=[]; delete S.tables[sid]; save(); closeSheet(); render(); }
@@ -571,7 +572,7 @@ function openSeat(sid,cid){
   } else {
     const left=t.end-now(); const seated=t.slots.filter(x=>x.castId).length, short=t.slots.length-seated;
     h+=`<div class="sub">入店 ${hhmm(t.startAt||t.start)} ・ 終了予定 ${hhmm(t.end)} ・ 延長${t.ext}回</div>
-      <div class="row" style="align-items:center"><span class="muted">入店時刻</span><input type="time" id="st-time" value="${hhmm(t.startAt||t.start)}" style="width:130px"><button class="b s" onclick="setStart('${sid}')">時刻を変更</button></div>
+      <div class="row" style="align-items:center"><span class="muted">入店時刻</span><input type="time" id="st-time" value="${hhmm(t.startAt||t.start)}" style="width:130px"><button class="b s p" onclick="setStart('${sid}')">時刻を変更</button></div>${stMsg?`<div id="st-msg" style="color:#9be7a8;font-weight:700;margin:2px 0 6px">${stMsg}</div>`:''}
       <div class="row" style="gap:16px"><div class="big" style="color:${left<=S.settings.left*60000?'#ff9a94':left<=S.settings.left2*60000?'#f0c674':'inherit'}"><span data-since-end="${t.end}" data-tl="1" data-end="${t.end}">${remain(t.end)}</span><small>残り</small></div><div class="big">${t.slots.length}<small>客</small> ${seated}<small>女</small> <span style="color:${short>0?'#ff9a94':'#9be7a8'}">${short>0?'-'+short:'OK'}</span></div></div>
       ${seated===0?`<div class="alert" style="margin-bottom:6px">女の子ゼロ <b data-since="${t.lastEmpty||t.start}">${elapsed(t.lastEmpty||t.start)}</b> 経過</div>`:''}
       <div class="row"><button class="b" onclick="extend('${sid}',${S.settings.ext})">延長 +${S.settings.ext}分</button><button class="b" onclick="extend('${sid}',${S.settings.half})">ハーフ +${S.settings.half}分</button></div>
@@ -588,7 +589,7 @@ function openSeat(sid,cid){
       <div class="row"><select id="m-to" style="flex:1"><option value="">席移動先…</option>${FLOORS.flatMap(f=>f.seats.filter(x=>seatFree(x.id)||(x.hidden&&!S.tables[x.id]&&!x.parts.some(id=>S.tables[id]||linkedTo(id)))).map(x=>`<option value="${x.id}">${x.id}</option>`)).join('')}</select><button class="b s" onclick="moveTable('${sid}')">席移動</button></div>
       <div class="row"><button class="b d" onclick="if(confirmLeave('${sid}'))leaveTable('${sid}')">退店（席を空ける）</button></div>`;
   }
-  h+=`<div class="row"><button class="b" onclick="closeSheet()">閉じる</button></div>`;
+  h+=`<div class="row"><button class="b" onclick="closeSheet()">閉じる</button></div>`; stMsg='';
   el.innerHTML=h; el.classList.add('on'); document.getElementById('sbg').classList.add('on');
 }
 function openRepeat(sid,cid,kind,prev,confirmJs){
