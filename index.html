@@ -603,7 +603,7 @@ let leaveArm=null;
 function confirmLeave(sid){ if(leaveArm===sid){ leaveArm=null; return true; } leaveArm=sid; const b=document.querySelector('.sheet .b.d'); if(b) b.textContent='もう一度押して退店を確定'; return false; }
 function closeSheet(){ leaveArm=null; preCast=null; document.getElementById('sheet').classList.remove('on'); document.getElementById('sbg').classList.remove('on'); }
 function toggleRole(){ if(ROLE==='op'){ setRole('view'); } else if(!ME){ relogin(); } else { openPin(); } }
-async function relogin(){ if(!SB) return; const p=loginUI('この端末は操作用の登録がありません。担当番号とPINで入り直してください'); const el=document.getElementById('login'); if(el&&el.firstElementChild){ const c=document.createElement('button'); c.className='b'; c.style.cssText='width:100%;margin-top:8px'; c.textContent='やめる（閲覧のまま）'; c.onclick=()=>el.remove(); el.firstElementChild.appendChild(c); } const s=await p; if(s) location.reload(); }
+async function relogin(){ if(!SB) return; const p=loginUI('この端末は操作用の登録がありません。担当番号とPINで入り直してください'); const el=document.getElementById('login'); if(el&&el.firstElementChild){ const c=document.createElement('button'); c.className='b'; c.style.cssText='width:100%;margin-top:8px'; c.textContent='やめる（閲覧のまま）'; c.onclick=()=>el.remove(); el.firstElementChild.appendChild(c); } const s=await p; if(s){ try{ sessionStorage.setItem('tm-fresh','1'); }catch(e){} location.reload(); } }
 function openPin(){ const el=document.getElementById('sheet'); el.innerHTML=`<h3>操作用に切り替え</h3><div class="sub">自分のPINを入力</div><input id="pin" type="text" name="tmcode2" inputmode="numeric" autocomplete="one-time-code" data-lpignore="true" data-1p-ignore style="width:100%;-webkit-text-security:disc" placeholder="PIN" onkeydown="if(event.key==='Enter'){event.preventDefault();pinGo();}"><div id="pin-msg" class="muted" style="color:#ff6b6b;min-height:16px;margin-top:4px"></div><div class="row"><button class="b" onclick="closeSheet()">やめる</button><button class="b p" onclick="pinGo()">切り替え</button></div>`; el.classList.add('on'); document.getElementById('sbg').classList.add('on'); setTimeout(()=>{ const p=document.getElementById('pin'); if(p) p.focus(); },50); }
 async function pinGo(){ const el=document.getElementById('pin'); const ok=await tryOp(el.value.normalize('NFKC').trim()); if(ok){ closeSheet(); setRole('op'); badge('同期中 ✓'); syncPush(); } else { el.value=''; el.placeholder='PINが違います'; const pm=document.getElementById('pin-msg'); if(pm) pm.textContent='PINが違います。自分の番号のPINを入れてください'; } }
 function switchTab(t){ tab=t; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t)); ['map','cast','board','set','log'].forEach(x=>document.getElementById('tab-'+x).style.display=(x===t)?'block':'none'); render(); if(t==='log') renderLog(); }
@@ -660,11 +660,11 @@ function loginUI(msg){ return new Promise(res=>{ let el=document.getElementById(
 async function tryOp(pin){ if(!LOGIN_NO||!ME) return false; const {data,error}=await SB.auth.signInWithPassword({email:staffEmail(LOGIN_NO),password:pin}); if(error||!data.session) return false; SY.ro=false; return true; }
 async function logoutDevice(){ if(!SB) return; await SB.auth.signOut(); location.reload(); }
 async function getDb(){ if(!window.supabase||SUPA_URL.startsWith('__')) return null; SB=window.supabase.createClient(SUPA_URL,SUPA_KEY);
-  let {data}=await SB.auth.getSession(); let ses=data.session; if(!ses) ses=await loginUI();
+  let {data}=await SB.auth.getSession(); let ses=data.session; let fresh=false; if(!ses){ ses=await loginUI(); fresh=true; } try{ if(sessionStorage.getItem('tm-fresh')){ fresh=true; sessionStorage.removeItem('tm-fresh'); } }catch(e){}
   const mm=/^s(\d)@/.exec(ses.user.email||''); LOGIN_NO=mm?Number(mm[1]):null;
   try{ const {data:st}=await SB.from('tm_staff').select('uid,no,name,admin'); (st||[]).forEach(r=>{ STAFF[r.uid]=r; }); }catch(e){}
   ME=STAFF[ses.user.id]||null; SY.ro=!ME; if(SY.ro) setRole('view');
-  if(ME){ const rb=document.getElementById('rolebadge'); rb.title='担当'+ME.no; document.getElementById('whoami').textContent='担当'+ME.no+(ME.name?' '+ME.name:''); if(ME.admin) document.body.classList.add('isadmin'); }
+  if(ME){ const rb=document.getElementById('rolebadge'); rb.title='担当'+ME.no; document.getElementById('whoami').textContent='担当'+ME.no+(ME.name?' '+ME.name:''); if(ME.admin) document.body.classList.add('isadmin'); if(fresh&&ROLE==='view') setRole('op'); }
   return makeDb(SB); }
 
 /* ========= 操作記録（誰が・いつ・何をしたか） =========
