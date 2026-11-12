@@ -527,17 +527,17 @@ function toggleCast(cid){ if(ROLE==='view') return; const c=castById(cid); if(c.
 function addCast(){ if(ROLE==='view') return; const v=document.getElementById('newcast').value.trim(); if(!v) return; S.casts.push({id:'c'+Date.now(),name:v,on:true,status:'wait'}); document.getElementById('newcast').value=''; save(); render(); }
 function saveSettings(){ if(ROLE==='view') return; const g=id=>Number(document.getElementById(id).value)||0; S.settings={set:g('s-set'),ext:g('s-ext'),half:g('s-half'),soon:g('s-soon'),turn:g('s-turn'),left:g('s-left'),left2:g('s-left2'),noone:g('s-noone')}; save(); switchTab('map'); }
 
-function addSlotTo(t,kind,cid,moveIfSeated){
+function addSlotTo(t,kind,cid,moveIfSeated,atOpen){
   const slot={kind,castId:null,start:null,want:null};
   const sid=Object.keys(S.tables).find(k=>S.tables[k]===t);
-  if(cid && (kind==='hon'||kind==='jo')){ const loc=castLocation(cid); if(!loc){ slot.castId=cid; slot.start=now(); castById(cid).status='wait'; } else if(moveIfSeated&&loc!==sid){ removeSeated(loc,cid); slot.castId=cid; slot.start=now(); castById(cid).status='wait'; } else { slot.want=cid; slot.since=now(); } }
+  if(cid && (kind==='hon'||kind==='jo')){ const loc=castLocation(cid); if(atOpen&&!moveIfSeated){ slot.want=cid; slot.since=now(); } else if(!loc){ slot.castId=cid; slot.start=now(); castById(cid).status='wait'; } else if(moveIfSeated&&loc!==sid){ removeSeated(loc,cid); slot.castId=cid; slot.start=now(); castById(cid).status='wait'; } else { slot.want=cid; slot.since=now(); } }
   else if(cid){ const loc=castLocation(cid); if(!loc){ slot.castId=cid; slot.start=now(); } else if(loc!==sid){ removeSeated(loc,cid); slot.castId=cid; slot.start=now(); castById(cid).status='wait'; } }
   t.slots.push(slot); if(slot.castId){ t.lastEmpty=null; t.lastSeatAt=now(); } refull(t);
 }
 function startTable(sid){ if(ROLE==='view') return;
   const n=Number(document.getElementById('f-size').value)||1;
   const t={start:now(),end:now()+S.settings.set*60000,ext:0,slots:[],lastEmpty:now(),linked:linkSel.filter(id=>id!==sid&&seatFree(id))}; linkSel=[];
-  S.tables[sid]=t; for(let i=0;i<n;i++){ const k=document.getElementById('k'+i).value, c=document.getElementById('c'+i).value; addSlotTo(t,k,c||null, i===0&&preCast&&c===preCast); }
+  S.tables[sid]=t; for(let i=0;i<n;i++){ const k=document.getElementById('k'+i).value, c=document.getElementById('c'+i).value; addSlotTo(t,k,c||null, i===0&&preCast&&c===preCast, true); }
   refull(t); save(); closeSheet(); render();
 }
 function addSlot(sid){ if(ROLE==='view') return; const k=document.getElementById('a-kind').value, c=document.getElementById('a-cast').value; addSlotTo(S.tables[sid],k,c||null,true); save(); openSeat(sid); render(); }
@@ -545,6 +545,7 @@ function dropSlot(sid,i){ if(ROLE==='view') return; const t=S.tables[sid]; if(t.
 function changeKind(sid,i,k){ if(ROLE==='view') return; const s=S.tables[sid].slots[i]; s.kind=k; if(isRot(k)) s.want=null; save(); openSeat(sid); render(); }
 function linkSeats(sid){ if(ROLE==='view') return; const t=S.tables[sid]; t.linked=[...(t.linked||[]),...linkSel.filter(id=>!(t.linked||[]).includes(id)&&seatFree(id))]; linkSel=[]; save(); openSeat(sid); render(); }
 function unlinkSeat(sid,id){ if(ROLE==='view') return; const t=S.tables[sid]; t.linked=(t.linked||[]).filter(x=>x!==id); save(); openSeat(sid); render(); }
+function setStart(sid){ if(ROLE==='view') return; const t=S.tables[sid]; const el=document.getElementById('st-time'); const v=el?el.value:''; if(!t||!/^\d\d:\d\d/.test(v)) return; const d=new Date(); d.setHours(Number(v.slice(0,2)),Number(v.slice(3,5)),0,0); let ts=d.getTime(); if(ts>now()+5*60000) ts-=86400000; const cur=t.startAt||t.start; const delta=ts-cur; if(!delta) return; t.startAt=ts; t.end+=delta; save(); openSeat(sid); render(); }
 function extend(sid,m){ if(ROLE==='view') return; const t=S.tables[sid]; t.end+=m*60000; t.ext++; save(); openSeat(sid); render(); }
 function leaveTable(sid){ if(ROLE==='view') return; const t=S.tables[sid]; t.slots.forEach(s=>{ if(s.castId){ S.history.push({sid,tkey:t.start,castId:s.castId,start:s.start,end:now(),kind:occKind(s),reason:'close'}); const c=castById(s.castId); if(c) c.status='wait'; } }); delete S.tables[sid]; save(); closeSheet(); render(); }
 function moveTable(sid){ if(ROLE==='view') return; const to=document.getElementById('m-to').value; const td=seatById(to); if(!to||!td||S.tables[to]) return; if(td.hidden){ if(td.parts.some(id=>S.tables[id]||linkedTo(id))) return; } else if(!seatFree(to)) return; S.tables[to]=S.tables[sid]; S.tables[to].linked=[]; delete S.tables[sid]; save(); closeSheet(); render(); }
@@ -565,11 +566,12 @@ function openSeat(sid,cid){
       <label>お客様の人数${s.cap?'（推奨'+s.cap+'名'+(s.max&&s.max>s.cap?'、丸椅子で'+s.max:'')+'。超えても入れられます）':''}</label><div class="stepper"><button class="b s" onclick="stepSize(-1)">−</button><input type="number" id="f-size" value="1" min="1" max="20" data-rec="${s.max||s.cap||0}" readonly><button class="b s" onclick="stepSize(1)">＋</button><span class="muted" id="f-max">推奨 ${s.max||s.cap||'-'}名</span></div>
       <div id="slots" style="margin-top:6px">${slotRows(1)}</div>
       <label>席をつなげる（複数選択可）</label><div class="chips" id="linkchips" data-sid="${sid}" style="flex-wrap:wrap">${linkChips(sid,linkSel=[])}</div>
-      <div class="muted">女の子はあとから着けてもOK（空き枠はマイナスとして表示）</div>
+      <div class="muted">女の子はあとから着けてもOK（空き枠はマイナスとして表示）。指名の子は「待ち」で入り、「着ける」を押した時点からその子の時間が始まります</div>
       <div class="row"><button class="b p" onclick="startTable('${sid}')">入店（${S.settings.set}分セット開始）</button></div>`;
   } else {
     const left=t.end-now(); const seated=t.slots.filter(x=>x.castId).length, short=t.slots.length-seated;
-    h+=`<div class="sub">入店 ${hhmm(t.start)} ・ 終了予定 ${hhmm(t.end)} ・ 延長${t.ext}回</div>
+    h+=`<div class="sub">入店 ${hhmm(t.startAt||t.start)} ・ 終了予定 ${hhmm(t.end)} ・ 延長${t.ext}回</div>
+      <div class="row" style="align-items:center"><span class="muted">入店時刻</span><input type="time" id="st-time" value="${hhmm(t.startAt||t.start)}" style="width:130px"><button class="b s" onclick="setStart('${sid}')">時刻を変更</button></div>
       <div class="row" style="gap:16px"><div class="big" style="color:${left<=S.settings.left*60000?'#ff9a94':left<=S.settings.left2*60000?'#f0c674':'inherit'}"><span data-since-end="${t.end}" data-tl="1" data-end="${t.end}">${remain(t.end)}</span><small>残り</small></div><div class="big">${t.slots.length}<small>客</small> ${seated}<small>女</small> <span style="color:${short>0?'#ff9a94':'#9be7a8'}">${short>0?'-'+short:'OK'}</span></div></div>
       ${seated===0?`<div class="alert" style="margin-bottom:6px">女の子ゼロ <b data-since="${t.lastEmpty||t.start}">${elapsed(t.lastEmpty||t.start)}</b> 経過</div>`:''}
       <div class="row"><button class="b" onclick="extend('${sid}',${S.settings.ext})">延長 +${S.settings.ext}分</button><button class="b" onclick="extend('${sid}',${S.settings.half})">ハーフ +${S.settings.half}分</button></div>
@@ -605,7 +607,7 @@ function closeSheet(){ leaveArm=null; preCast=null; document.getElementById('she
 function toggleRole(){ if(ROLE==='op'){ setRole('view'); } else if(!ME){ relogin(); } else { openPin(); } }
 async function relogin(){ if(!SB) return; const p=loginUI('この端末は操作用の登録がありません。担当番号とPINで入り直してください'); const el=document.getElementById('login'); if(el&&el.firstElementChild){ const c=document.createElement('button'); c.className='b'; c.style.cssText='width:100%;margin-top:8px'; c.textContent='やめる（閲覧のまま）'; c.onclick=()=>el.remove(); el.firstElementChild.appendChild(c); } const s=await p; if(s){ try{ sessionStorage.setItem('tm-fresh','1'); }catch(e){} location.reload(); } }
 function openPin(){ const el=document.getElementById('sheet'); el.innerHTML=`<h3>操作用に切り替え</h3><div class="sub">自分のPINを入力</div><input id="pin" type="text" name="tmcode2" inputmode="numeric" autocomplete="one-time-code" data-lpignore="true" data-1p-ignore style="width:100%;-webkit-text-security:disc" placeholder="PIN" onkeydown="if(event.key==='Enter'){event.preventDefault();pinGo();}"><div id="pin-msg" class="muted" style="color:#ff6b6b;min-height:16px;margin-top:4px"></div><div class="row"><button class="b" onclick="closeSheet()">やめる</button><button class="b p" onclick="pinGo()">切り替え</button></div>`; el.classList.add('on'); document.getElementById('sbg').classList.add('on'); setTimeout(()=>{ const p=document.getElementById('pin'); if(p) p.focus(); },50); }
-async function pinGo(){ const el=document.getElementById('pin'); const ok=await tryOp(el.value.normalize('NFKC').trim()); if(ok){ closeSheet(); setRole('op'); badge('同期中 ✓'); syncPush(); } else { el.value=''; el.placeholder='PINが違います'; const pm=document.getElementById('pin-msg'); if(pm) pm.textContent='PINが違います。自分の番号のPINを入れてください'; } }
+async function pinGo(){ const el=document.getElementById('pin'); const ok=await tryOp(el.value.normalize('NFKC').trim()); if(ok){ try{ sessionStorage.setItem('tm-mode','op'); }catch(e){} closeSheet(); setRole('op'); badge('同期中 ✓'); syncPush(); } else { el.value=''; el.placeholder='PINが違います'; const pm=document.getElementById('pin-msg'); if(pm) pm.textContent='PINが違います。自分の番号のPINを入れてください'; } }
 function switchTab(t){ tab=t; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t)); ['map','cast','board','set','log'].forEach(x=>document.getElementById('tab-'+x).style.display=(x===t)?'block':'none'); render(); if(t==='log') renderLog(); }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 
@@ -657,14 +659,21 @@ function loginUI(msg){ return new Promise(res=>{ let el=document.getElementById(
   const go=async()=>{ const pin=el.querySelector('#lg-pin').value.normalize('NFKC').trim(); const m=el.querySelector('#lg-msg'); if(!who){ m.textContent='担当番号を選んでください'; return; } if(!pin) return; el.querySelector('#lg-go').disabled=true; const {data,error}=await SB.auth.signInWithPassword({email:staffEmail(who),password:pin}); el.querySelector('#lg-go').disabled=false;
     if(error||!data.session){ el.querySelector('#lg-pin').value=''; m.textContent=/Invalid login/i.test((error&&error.message)||'')?('番号かPINが違います（担当'+who+'・入力'+pin.length+'文字）'):('入れませんでした：'+String((error&&error.message)||'電波を確認').slice(0,60)); return; } el.remove(); res(data.session); };
   el.querySelector('#lg-go').onclick=go; el.querySelector('#lg-pin').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); }); }); }
+function chooseMode(ses){ return new Promise(res=>{ const no=ses?(/^s(\d)@/.exec(ses.user.email||'')||[])[1]:null; const el=document.createElement('div'); el.id='modesel'; el.style.cssText='position:fixed;inset:0;z-index:998;background:#0b0d12;display:flex;align-items:center;justify-content:center;padding:20px';
+  el.innerHTML='<div style="width:100%;max-width:340px"><h3 style="margin:0 0 4px">付け回しボード</h3><div class="muted" style="margin-bottom:16px">どちらで開きますか</div><button class="b p" id="ms-op" style="width:100%;padding:18px 0;font-size:18px">操作用</button><div class="muted" style="margin:6px 0 18px;font-size:12px">'+(no?('この端末は担当'+no+'でログイン中。そのまま入ります'):'担当番号（1〜5）とPINで入ります')+'</div><button class="b" id="ms-view" style="width:100%;padding:18px 0;font-size:18px">閲覧用</button><div class="muted" style="margin:6px 0 0;font-size:12px">見るだけ。PINは要りません</div>'+(no?'<button class="b" id="ms-other" style="width:100%;margin-top:24px">別の担当で入る</button>':'')+'</div>'; document.body.appendChild(el);
+  const login=async()=>{ const p=loginUI(); const lg=document.getElementById('login'); if(lg&&lg.firstElementChild){ const c=document.createElement('button'); c.className='b'; c.style.cssText='width:100%;margin-top:8px'; c.textContent='戻る'; c.onclick=()=>lg.remove(); lg.firstElementChild.appendChild(c); } const s=await p; el.remove(); res({mode:'op',ses:s}); };
+  el.querySelector('#ms-op').onclick=()=>{ if(ses){ el.remove(); res({mode:'op',ses}); } else login(); };
+  el.querySelector('#ms-view').onclick=()=>{ el.remove(); res({mode:'view',ses}); };
+  const o=el.querySelector('#ms-other'); if(o) o.onclick=login; }); }
 async function tryOp(pin){ if(!LOGIN_NO||!ME) return false; const {data,error}=await SB.auth.signInWithPassword({email:staffEmail(LOGIN_NO),password:pin}); if(error||!data.session) return false; SY.ro=false; return true; }
-async function logoutDevice(){ if(!SB) return; await SB.auth.signOut(); location.reload(); }
+async function logoutDevice(){ if(!SB) return; try{ sessionStorage.removeItem('tm-mode'); }catch(e){} await SB.auth.signOut(); location.reload(); }
 async function getDb(){ if(!window.supabase||SUPA_URL.startsWith('__')) return null; SB=window.supabase.createClient(SUPA_URL,SUPA_KEY);
-  let {data}=await SB.auth.getSession(); let ses=data.session; let fresh=false; if(!ses){ ses=await loginUI(); fresh=true; } try{ if(sessionStorage.getItem('tm-fresh')){ fresh=true; sessionStorage.removeItem('tm-fresh'); } }catch(e){}
-  const mm=/^s(\d)@/.exec(ses.user.email||''); LOGIN_NO=mm?Number(mm[1]):null;
+  let {data}=await SB.auth.getSession(); let ses=data.session; let mode=null; try{ mode=sessionStorage.getItem('tm-mode'); if(sessionStorage.getItem('tm-fresh')){ mode='op'; sessionStorage.removeItem('tm-fresh'); } }catch(e){}
+  if(mode==='op'&&!ses) mode=null; if(!mode){ const r=await chooseMode(ses); mode=r.mode; ses=r.ses; } try{ sessionStorage.setItem('tm-mode',mode); }catch(e){}
+  const mm=ses?/^s(\d)@/.exec(ses.user.email||''):null; LOGIN_NO=mm?Number(mm[1]):null;
   try{ const {data:st}=await SB.from('tm_staff').select('uid,no,name,admin'); (st||[]).forEach(r=>{ STAFF[r.uid]=r; }); }catch(e){}
-  ME=STAFF[ses.user.id]||null; SY.ro=!ME; if(SY.ro) setRole('view');
-  if(ME){ const rb=document.getElementById('rolebadge'); rb.title='担当'+ME.no; document.getElementById('whoami').textContent='担当'+ME.no+(ME.name?' '+ME.name:''); if(ME.admin) document.body.classList.add('isadmin'); if(fresh&&ROLE==='view') setRole('op'); }
+  ME=ses?(STAFF[ses.user.id]||null):null; SY.ro=!ME; if(mode==='view'||!ME) setRole('view'); else if(ROLE==='view') setRole('op');
+  if(ME){ const rb=document.getElementById('rolebadge'); rb.title='担当'+ME.no; document.getElementById('whoami').textContent='担当'+ME.no+(ME.name?' '+ME.name:''); if(ME.admin) document.body.classList.add('isadmin'); }
   return makeDb(SB); }
 
 /* ========= 操作記録（誰が・いつ・何をしたか） =========
@@ -680,8 +689,8 @@ function audDiff(b,a){ const ev=[]; const nm=id=>a.names[id]||b.names[id]||'?'; 
   const off={}, onn={};
   for(const k of ks){ const tb=b.tables[k], ta=a.tables[k]; const src=moved[k]; const base=src?b.tables[src]:tb;
     if(!base&&ta){ ev.push({act:'入店',sid:k,detail:{guests:ta.slots.length,kinds:ta.slots.map(x=>x.kind).join(',')}}); }
-    if(tb&&!ta&&!Object.values(moved).includes(k)){ ev.push({act:'退店',sid:k,detail:{min:Math.round((Date.now()-tb.start)/60000),ext:tb.ext||0,guests:(tb.slots||[]).length}}); }
-    if(base&&ta){ if(ta.end!==base.end){ const m=Math.round((ta.end-base.end)/60000); if(isFinite(m)&&m!==0) ev.push({act:m>0&&m<=(S.settings.half||30)?'ハーフ延長':(m>0?'延長':'時間変更'),sid:k,detail:{min:m}}); }
+    if(tb&&!ta&&!Object.values(moved).includes(k)){ ev.push({act:'退店',sid:k,detail:{min:Math.round((Date.now()-(tb.startAt||tb.start))/60000),ext:tb.ext||0,guests:(tb.slots||[]).length}}); }
+    if(base&&ta){ if((ta.startAt||ta.start)!==(base.startAt||base.start)){ ev.push({act:'入店時刻変更',sid:k,detail:{from:hhmm(base.startAt||base.start),to:hhmm(ta.startAt||ta.start)}}); } else if(ta.end!==base.end){ const m=Math.round((ta.end-base.end)/60000); if(isFinite(m)&&m!==0) ev.push({act:m>0&&m<=(S.settings.half||30)?'ハーフ延長':(m>0?'延長':'時間変更'),sid:k,detail:{min:m}}); }
       const d=ta.slots.length-base.slots.length; if(d>0) ev.push({act:'枠追加',sid:k,detail:{n:d,guests:ta.slots.length}}); if(d<0) ev.push({act:'枠削除',sid:k,detail:{n:-d,guests:ta.slots.length}});
       if(stab((ta.linked||[]).slice().sort())!==stab((base.linked||[]).slice().sort())) ev.push({act:'席の連結変更',sid:k,detail:{linked:(ta.linked||[]).join(',')}}); }
     const sb=base?seated(base):{}, sa=ta?seated(ta):{};
